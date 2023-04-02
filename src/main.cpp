@@ -6,6 +6,7 @@
 #include <array>
 #include <atomic>
 #include <iostream>
+#include <memory>
 
 #include "lwip/apps/httpd.h"
 #include "lwipopts.h"
@@ -18,6 +19,7 @@ extern "C" {
 #include "LCD_Driver.h"
 #include "LCD_GUI.h"
 #include "LCD_Touch.h"
+#include "ff.h"
 
 extern LCD_DIS sLCD_DIS;
 }
@@ -119,6 +121,111 @@ int lDrawString(lua_State *l) {
 }
 
 //
+int lSetGramScanWay(lua_State *l) {
+  auto dir = static_cast<LCD_SCAN_DIR>(luaL_checkinteger(l, -1));
+  LCD_SetGramScanWay(dir);
+  return 0;
+}
+
+std::shared_ptr<FATFS> sdFatFs;
+//
+int lFMount(lua_State *l) {
+  FRESULT res = FR_OK;
+  if (!sdFatFs) {
+    DEV_Digital_Write(SD_CS_PIN, 1);
+    // DEV_Digital_Write(LCD_CS_PIN, 1);
+    // DEV_Digital_Write(TP_CS_PIN, 1);
+
+    sdFatFs = std::make_shared<FATFS>();
+    res = f_mount(sdFatFs.get(), "/", 1);
+    if (res != FR_OK) {
+      sdFatFs.reset();
+    }
+  }
+  lua_pushinteger(l, res);
+  return 1;
+}
+
+//
+int lFUnmount(lua_State *l) {
+  FRESULT res = FR_OK;
+  if (sdFatFs) {
+    res = f_mount(nullptr, "/", 1);
+    if (res == FR_OK) {
+      sdFatFs.reset();
+    }
+  }
+  lua_pushinteger(l, res);
+  return 1;
+}
+
+//
+int lFMkdir(lua_State *l) {
+  auto dirname = luaL_checkstring(l, -1);
+  auto res = f_mkdir(dirname);
+  lua_pushinteger(l, res);
+  return 1;
+}
+
+//
+int lFCreate(lua_State *l) {
+  auto fname = luaL_checkstring(l, -1);
+  auto file = static_cast<FIL *>(lua_newuserdata(l, sizeof(FIL)));
+  auto res = f_open(file, fname, FA_CREATE_ALWAYS | FA_WRITE);
+  lua_pushinteger(l, res);
+  return 2;
+}
+
+//
+int lFOpen(lua_State *l) {
+  auto fname = luaL_checkstring(l, -1);
+  auto file = static_cast<FIL *>(lua_newuserdata(l, sizeof(FIL)));
+  auto res = f_open(file, fname, FA_READ | FA_WRITE);
+  lua_pushinteger(l, res);
+  return 2;
+}
+
+//
+int lFClose(lua_State *l) {
+  auto file = static_cast<FIL *>(lua_touserdata(l, -1));
+  auto res = f_close(file);
+  lua_pushinteger(l, res);
+  return 1;
+}
+
+//
+int lFWrite(lua_State *l) {
+  auto file = static_cast<FIL *>(lua_touserdata(l, -2));
+  auto data = luaL_checkstring(l, -1);
+  auto len = strlen(data);
+  UINT num = 0;
+  auto res = f_write(file, data, len, &num);
+  lua_pushinteger(l, num);
+  lua_pushinteger(l, res);
+  return 2;
+}
+
+//
+int lFRead(lua_State *l) {
+  auto file = static_cast<FIL *>(lua_touserdata(l, -1));
+  luaL_Buffer buff;
+  auto *readBuff = luaL_buffinitsize(l, &buff, file->fsize);
+  UINT num = 0;
+  auto res = f_read(file, readBuff, file->fsize, &num);
+  luaL_pushresultsize(&buff, num);
+  lua_pushinteger(l, res);
+  return 2;
+}
+
+//
+int lFSeek(lua_State *l) {
+  auto file = static_cast<FIL *>(lua_touserdata(l, -2));
+  auto pos = luaL_checkinteger(l, -1);
+  auto res = f_lseek(file, pos);
+  lua_pushinteger(l, res);
+  return 1;
+}
+//
 void luaInit() {
   luaState = luaL_newstate();
   luaL_openlibs(luaState);
@@ -129,6 +236,16 @@ void luaInit() {
   lua_register(luaState, "DrawLine", lDrawLine);
   lua_register(luaState, "LCDClear", lClear);
   lua_register(luaState, "GetColor", lGetColor);
+  lua_register(luaState, "SetGramScanWay", lSetGramScanWay);
+  lua_register(luaState, "FMount", lFMount);
+  lua_register(luaState, "FUnmount", lFUnmount);
+  lua_register(luaState, "FMkdir", lFMkdir);
+  lua_register(luaState, "FCreate", lFCreate);
+  lua_register(luaState, "FOpen", lFOpen);
+  lua_register(luaState, "FClose", lFClose);
+  lua_register(luaState, "FWrite", lFWrite);
+  lua_register(luaState, "FRead", lFRead);
+  lua_register(luaState, "FSeek", lFSeek);
 }
 
 }  // namespace
@@ -163,7 +280,10 @@ err_t httpd_post_receive_data(void *connection, struct pbuf *p) {
 }
 
 void httpd_post_finished(void *connection, char *response_uri,
-                         u16_t response_uri_len) {}
+                         u16_t response_uri_len) {
+  strncpy(response_uri, "/cgi.html", 10);
+  response_uri_len = 10;
+}
 }
 
 //
