@@ -1,5 +1,5 @@
 //
-//
+// copyright 2023 Suzuki Yoshinori(wave.suzuki.z@gmail.com)
 //
 #include <pico/stdlib.h>
 
@@ -248,7 +248,7 @@ void luaInit() {
   lua_register(luaState, "FSeek", lFSeek);
 }
 
-}  // namespace
+} // namespace
 
 extern "C" {
 
